@@ -92,7 +92,7 @@ async def start(msg: types.Message):
             text=f"{plan['dias']} días - \${plan['precio']}",
             callback_data=f"comprar_{i}"
         ))
-    await msg.answer("🔥 *Planes SSH Disponibles:*\n\nElige uno de los siguientes planes:",
+    await msg.answer("💎 *PLANES PREMIUM DISPONIBLES:*\n\nSeleccione unos de los siguientes planes disponibles:",
                      parse_mode="Markdown", reply_markup=keyboard)
 
 @dp.callback_query_handler(lambda call: call.data.startswith("comprar_"))
