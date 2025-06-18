@@ -1,23 +1,8 @@
 #!/bin/bash
 
-echo "🔐 Ingresá el token de tu bot de Telegram:"
-read -p "👉 TELEGRAM_BOT_TOKEN: " BOT_TOKEN
-
-echo "💳 Ingresá tu Access Token de Mercado Pago:"
-read -p "👉 MERCADO_PAGO_ACCESS_TOKEN: " MP_TOKEN
-
-echo "🌐 Ingresá tu dominio (tipo A) para el webhook (ej: ssh.midominio.com):"
-read -p "👉 DOMINIO_WEBHOOK: " WEBHOOK_DOMAIN
-
-echo "📡 Ingresá la IP pública de este servidor (para configurar el DNS):"
-read -p "👉 IP_PUBLICA: " IP_PUBLICA
-
-echo ""
-echo "🛑 IMPORTANTE:"
-echo "➡️ Apuntá el dominio ${WEBHOOK_DOMAIN} a la IP ${IP_PUBLICA} usando un registro A en tu proveedor de dominio."
-echo "➡️ Luego en Mercado Pago, configurá el webhook como:"
-echo "   https://${WEBHOOK_DOMAIN}/webhook"
-echo ""
+read -p "Introduce tu Telegram Bot Token: " BOT_TOKEN
+read -p "Introduce tu Mercado Pago Access Token: " MP_TOKEN
+read -p "Introduce tu dominio (ejemplo: midominio.com): " DOMINIO
 
 echo "📦 Actualizando sistema..."
 sudo apt update && sudo apt upgrade -y
@@ -31,12 +16,13 @@ python3 -m venv venv
 source venv/bin/activate
 
 pip install --upgrade pip
-pip install aiogram mercadopago qrcode[pil] flask requests
+pip uninstall -y aiogram
+pip install aiogram==2.25.2 mercadopago qrcode[pil] flask requests
 
 cat > config.py <<EOF
 TELEGRAM_BOT_TOKEN="${BOT_TOKEN}"
 MERCADO_PAGO_ACCESS_TOKEN="${MP_TOKEN}"
-WEBHOOK_DOMAIN="${WEBHOOK_DOMAIN}"
+DOMINIO="${DOMINIO}"
 EOF
 
 cat > plans.json <<EOF
@@ -49,8 +35,8 @@ EOF
 
 cat > entrega.py <<EOF
 accesos_ssh = [
-    {"host": "ssh1.tuservidor.com", "user": "user1", "pass": "123456", "limit": 1},
-    {"host": "ssh2.tuservidor.com", "user": "user2", "pass": "abcdef", "limit": 1}
+    {"host": "ssh1.${DOMINIO}", "user": "user1", "pass": "123456", "limit": 1},
+    {"host": "ssh2.${DOMINIO}", "user": "user2", "pass": "abcdef", "limit": 1}
 ]
 
 def entregar_acceso():
@@ -113,9 +99,12 @@ async def comprar_callback(call: types.CallbackQuery):
         parse_mode="Markdown"
     )
     await call.message.answer_photo(photo=bio, caption="📸 Escanea para pagar via QR PIX (Mercado Pago)")
+
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
 EOF
 
-cat > webhook.py <<'EOF'
+cat > webhook.py <<EOF
 from flask import Flask, request
 import mercadopago
 import requests
@@ -149,13 +138,13 @@ def webhook():
             acceso = entregar_acceso()
             if acceso:
                 msg = (
-                    f"✅ *Pago confirmado*\n\n"
-                    f"🧩 *Acceso Creado:*\n"
-                    f"👤Usuario: `{acceso['user']}`\n"
-                    f"🔐Clave: `{acceso['pass']}`\n"
-                    f"📲Límite: {acceso.get('limit', 1)}\n"
-                    f"🗓️Vencimiento: {vencimiento}\n\n"
-                    f"📥 Descarga nuestra app desde la PlayStore:\n"
+                    f"✅ *Pago confirmado*\\n\\n"
+                    f"🧩 *Acceso Creado:*\\n"
+                    f"👤Usuario: `{acceso['user']}`\\n"
+                    f"🔐Clave: `{acceso['pass']}`\\n"
+                    f"📲Límite: {acceso.get('limit', 1)}\\n"
+                    f"🗓️Vencimiento: {vencimiento}\\n\\n"
+                    f"📥 Descarga nuestra app desde la PlayStore:\\n"
                     f"[Conecta HTTP](https://play.google.com/store/apps/details?id=app.conecta.pro)"
                 )
             else:
@@ -184,7 +173,4 @@ echo ""
 echo "👉 Para iniciar el webhook:"
 echo "   python3 webhook.py"
 echo ""
-echo "📡 Webhook para Mercado Pago:"
-echo "   https://${WEBHOOK_DOMAIN}/webhook"
-echo ""
-echo "⚠️ Asegurate de que tu dominio apunte a la IP ${IP_PUBLICA}"
+echo "⚠️ Recuerda exponer el puerto 5000 con ngrok o configurar el dominio apuntando a la VPS."
