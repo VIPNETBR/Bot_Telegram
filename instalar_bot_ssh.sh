@@ -2,30 +2,8 @@
 
 set -e
 
-echo "==== Instalador Bot Telegram SSH + Mercado Pago ===="
+echo "==== Instalador Bot SSH con Telegram, Mercado Pago y WhatsApp ===="
 
-read -p "Ingresa tu TELEGRAM BOT TOKEN: " BOT_TOKEN
-read -p "Ingresa tu MERCADO PAGO ACCESS TOKEN: " MP_TOKEN
-read -p "Ingresa el dominio (registro tipo A vinculado al IP): " DOMINIO
-
-echo "Configura los planes (deja vacío para valores por defecto)"
-
-read -p "Plan 1 - Duración días [default 31]: " PLAN1_DIAS
-PLAN1_DIAS=${PLAN1_DIAS:-31}
-read -p "Plan 1 - Precio (ej: 20): " PLAN1_PRECIO
-PLAN1_PRECIO=${PLAN1_PRECIO:-20}
-
-read -p "Plan 2 - Duración días [default 16]: " PLAN2_DIAS
-PLAN2_DIAS=${PLAN2_DIAS:-16}
-read -p "Plan 2 - Precio (ej: 15): " PLAN2_PRECIO
-PLAN2_PRECIO=${PLAN2_PRECIO:-15}
-
-read -p "Plan 3 - Duración días [default 8]: " PLAN3_DIAS
-PLAN3_DIAS=${PLAN3_DIAS:-8}
-read -p "Plan 3 - Precio (ej: 10): " PLAN3_PRECIO
-PLAN3_PRECIO=${PLAN3_PRECIO:-10}
-
-echo ""
 echo "📦 Actualizando sistema..."
 sudo apt update && sudo apt upgrade -y
 
@@ -40,19 +18,28 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install aiogram mercadopago qrcode[pil] flask requests
 
-echo "⚙️ Guardando configuración..."
+echo "⚙️ Guardando configuración base..."
 
 cat > config.py <<EOF
-TELEGRAM_BOT_TOKEN="${BOT_TOKEN}"
-MERCADO_PAGO_ACCESS_TOKEN="${MP_TOKEN}"
-DOMINIO="${DOMINIO}"
+TELEGRAM_BOT_TOKEN="your_telegram_token_here"
+MERCADO_PAGO_ACCESS_TOKEN="your_mercadopago_token_here"
+DOMINIO="your_domain_here"
+EOF
+
+cat > config_whatsapp.py <<EOF
+# Configuración Bot WhatsApp (edita estos valores antes de iniciar el bot)
+
+WHATSAPP_TOKEN="your_whatsapp_token_here"
+WHATSAPP_PHONE_ID="your_phone_number_id_here"
+VERIFY_TOKEN="your_verify_token_here"
+API_URL="https://graph.facebook.com/v15.0"
 EOF
 
 cat > plans.json <<EOF
 [
-  {"dias": ${PLAN1_DIAS}, "precio": ${PLAN1_PRECIO}},
-  {"dias": ${PLAN2_DIAS}, "precio": ${PLAN2_PRECIO}},
-  {"dias": ${PLAN3_DIAS}, "precio": ${PLAN3_PRECIO}}
+  {"dias": 31, "precio": 20},
+  {"dias": 16, "precio": 15},
+  {"dias": 8, "precio": 10}
 ]
 EOF
 
@@ -121,9 +108,9 @@ async def comprar_callback(call: types.CallbackQuery):
     await call.message.answer_photo(photo=bio, caption="📸 Escanea para pagar via QR PIX (Mercado Pago)")
 
     texto_pago = (
-        f"✅ PAGAMENTO GERADO COM SUCESSO\n\n"
-        f"PIX COPIA E COLA:\n{copia_cola}\n\n"
-        f"URL DO TICKET:\n{link}"
+        f"✅ PAGO GENERADO CON ÉXITO\n\n"
+        f"PIX COPIA Y PEGA:\n{copia_cola}\n\n"
+        f"URL DEL TICKET:\n{link}"
     )
     await call.message.answer(texto_pago)
 
@@ -178,12 +165,12 @@ def webhook():
             if acceso:
                 msg = (
                     "✅ PAGO CONFIRMADO !\n\n"
-                    "🧩ACCESO CREADO CON EXITO ✅\n\n"
+                    "🧩ACCESO CREADO CON ÉXITO ✅\n\n"
                     f"👤USUARIO: {acceso['user']}\n"
                     f"🔐CONTRASEÑA: {acceso['pass']}\n"
-                    f"📲LIMITE: {acceso.get('limit', 1)}\n"
+                    f"📲LÍMITE: {acceso.get('limit', 1)}\n"
                     f"🗓️VENCIMIENTO: {vencimiento}\n\n"
-                    "📥 APLICACION: https://play.google.com/store/apps/details?id=app.conecta.pro"
+                    "📥 APLICACIÓN: https://play.google.com/store/apps/details?id=app.conecta.pro"
                 )
             else:
                 msg = "⚠️ Pago confirmado pero no hay accesos SSH disponibles."
@@ -198,7 +185,7 @@ def webhook():
 
             # Guardar log
             with open("webhook.log", "a") as f:
-                f.write(f"{datetime.datetime.now()} - Pago aprobado: Usuario {acceso['user'] if acceso else 'No disponible'}, Dias {dias}\n")
+                f.write(f"{datetime.datetime.now()} - Pago aprobado: Usuario {acceso['user'] if acceso else 'No disponible'}, Días {dias}\n")
 
     return "OK", 200
 
@@ -206,77 +193,195 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 EOF
 
+cat > bot_whatsapp.py <<'EOF'
+import time
+import json
+import requests
+from flask import Flask, request, jsonify
+from config_whatsapp import WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, VERIFY_TOKEN, API_URL
+
+app = Flask(__name__)
+
+def send_message(to, text):
+    url = f"{API_URL}/{WHATSAPP_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "text": {"body": text}
+    }
+    r = requests.post(url, headers=headers, json=data)
+    return r.status_code == 200
+
+@app.route('/webhook', methods=['GET'])
+def verify():
+    mode = request.args.get('hub.mode')
+    token = request.args.get('hub.verify_token')
+    challenge = request.args.get('hub.challenge')
+    if mode == 'subscribe' and token == VERIFY_TOKEN:
+        return challenge
+    return 'Error, invalid token', 403
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    if data and "entry" in data:
+        for entry in data["entry"]:
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                for message in messages:
+                    from_number = message["from"]
+                    text_body = message.get("text", {}).get("body", "").lower()
+
+                    if "hola" in text_body:
+                        send_message(from_number, "¡Hola! Bienvenido al Bot SSH. Escribe '1' para crear un test, '2' para comprar SSH, '3' para renovar, o '4' para descargar la app.")
+                    elif text_body == "1":
+                        send_message(from_number, "Función de crear test aún no implementada.")
+                    elif text_body == "2":
+                        send_message(from_number, "Planes disponibles:\n1) 31 días - $20\n2) 16 días - $15\n3) 8 días - $10\nEnvía el número del plan para comprar.")
+                    elif text_body in ["1", "2", "3"]:
+                        send_message(from_number, "Gracias por elegir un plan. Pronto recibirás el código de pago.")
+                    elif text_body == "3":
+                        send_message(from_number, "Función de renovación aún no implementada.")
+                    elif text_body == "4":
+                        send_message(from_number, "Descarga nuestra app aquí:\nhttps://play.google.com/store/apps/details?id=app.conecta.pro")
+                    else:
+                        send_message(from_number, "No entendí tu mensaje. Escribe 'hola' para comenzar.")
+    return jsonify(status="ok")
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=6000)
+EOF
+
 cat > menu.sh <<'EOF'
 #!/bin/bash
 source ~/bot_ssh/venv/bin/activate
 cd ~/bot_ssh
 
-clear
-echo "===== Logs de ventas recientes ====="
-tail -n 50 webhook.log
-read -p "Presiona Enter para continuar al menú..."
+function check_whatsapp_config() {
+    if [ ! -f config_whatsapp.py ]; then
+        echo "❌ Archivo config_whatsapp.py no encontrado."
+        return 1
+    fi
+    local content=$(grep -E "WHATSAPP_TOKEN|WHATSAPP_PHONE_ID|VERIFY_TOKEN|API_URL" config_whatsapp.py)
+    if echo "$content" | grep -q "your_whatsapp_token_here\|your_phone_number_id_here\|your_verify_token_here\|your_api_url_here"; then
+        echo "❌ Configuración de Bot WhatsApp incompleta. Edita config_whatsapp.py antes de iniciar."
+        return 1
+    fi
+    return 0
+}
 
 while true; do
     clear
     echo "===== Menú de Administración Bot SSH ====="
-    echo "1) Iniciar Bot Telegram"
-    echo "2) Detener Bot Telegram"
-    echo "3) Iniciar Webhook"
-    echo "4) Detener Webhook"
-    echo "5) Ver estado (procesos)"
-    echo "6) Editar planes"
-    echo "7) Ver ventas (logs de webhook)"
-    echo "8) Desinstalar todo"
-    echo "9) Salir"
+    echo "1) Bot Telegram"
+    echo "2) Bot WhatsApp"
+    echo "3) Ajustes"
+    echo "4) Desinstalar script"
+    echo "5) Salir"
     echo "=========================================="
     read -p "Elige opción: " opt
 
     case $opt in
         1)
-            pkill -f bot.py || true
-            nohup python3 bot.py > bot.log 2>&1 &
-            echo "Bot iniciado."
-            sleep 2
+            while true; do
+                clear
+                echo "===== Bot Telegram ====="
+                echo "1) Activar Bot Telegram"
+                echo "2) Desactivar Bot Telegram"
+                echo "3) Editar config.py"
+                echo "4) Ver ventas"
+                echo "5) Volver al menú principal"
+                read -p "Elige opción: " topt
+
+                case $topt in
+                    1)
+                        pkill -f bot.py || true
+                        nohup python3 bot.py > bot.log 2>&1 &
+                        echo "✅ Bot Telegram iniciado."
+                        sleep 3
+                        ;;
+                    2)
+                        pkill -f bot.py && echo "Bot Telegram detenido." || echo "Bot Telegram no estaba corriendo."
+                        sleep 3
+                        ;;
+                    3)
+                        nano config.py
+                        ;;
+                    4)
+                        echo "Últimas 50 ventas:"
+                        tail -n 50 webhook.log
+                        read -p "Presiona Enter para continuar..."
+                        ;;
+                    5)
+                        break
+                        ;;
+                    *)
+                        echo "Opción inválida."
+                        sleep 1
+                        ;;
+                esac
+            done
             ;;
         2)
-            pkill -f bot.py && echo "Bot detenido." || echo "Bot no estaba corriendo."
-            sleep 2
+            while true; do
+                clear
+                echo "===== Bot WhatsApp ====="
+                echo "1) Activar Bot WhatsApp"
+                echo "2) Desactivar Bot WhatsApp"
+                echo "3) Configurar Bot WhatsApp (editar config_whatsapp.py)"
+                echo "4) Volver al menú principal"
+                read -p "Elige opción: " wopt
+
+                case $wopt in
+                    1)
+                        check_whatsapp_config
+                        if [ $? -eq 0 ]; then
+                            pkill -f bot_whatsapp.py || true
+                            nohup python3 bot_whatsapp.py > bot_whatsapp.log 2>&1 &
+                            echo "✅ Bot WhatsApp iniciado."
+                        else
+                            echo "⚠️ Corrige la configuración primero."
+                        fi
+                        sleep 3
+                        ;;
+                    2)
+                        pkill -f bot_whatsapp.py && echo "Bot WhatsApp detenido." || echo "Bot WhatsApp no estaba corriendo."
+                        sleep 3
+                        ;;
+                    3)
+                        nano config_whatsapp.py
+                        ;;
+                    4)
+                        break
+                        ;;
+                    *)
+                        echo "Opción inválida."
+                        sleep 1
+                        ;;
+                esac
+            done
             ;;
         3)
-            pkill -f webhook.py || true
-            nohup python3 webhook.py > webhook.log 2>&1 &
-            echo "Webhook iniciado."
+            echo "Ajustes aún no implementados."
             sleep 2
             ;;
         4)
-            pkill -f webhook.py && echo "Webhook detenido." || echo "Webhook no estaba corriendo."
-            sleep 2
-            ;;
-        5)
-            echo "Procesos bot y webhook:"
-            pgrep -fl bot.py
-            pgrep -fl webhook.py
-            read -p "Enter para continuar..."
-            ;;
-        6)
-            nano plans.json
-            ;;
-        7)
-            echo "Logs webhook:"
-            tail -n 50 webhook.log
-            read -p "Enter para continuar..."
-            ;;
-        8)
             read -p "¿Seguro quieres desinstalar todo? (s/n): " yn
             if [[ "$yn" == "s" ]]; then
                 pkill -f bot.py || true
                 pkill -f webhook.py || true
+                pkill -f bot_whatsapp.py || true
                 rm -rf ~/bot_ssh
                 echo "Desinstalado."
                 exit 0
             fi
             ;;
-        9)
+        5)
             exit 0
             ;;
         *)
@@ -296,7 +401,5 @@ echo "   cd ~/bot_ssh"
 echo "   source venv/bin/activate"
 echo "   ./menu.sh"
 echo ""
-echo "⚠️ Recuerda abrir el puerto 5000 para el webhook y puerto 80 si planeas usarlo."
-echo "Si el puerto 80 está ocupado, usa el 5000."
-echo ""
-echo "Nota: El dominio que ingresaste debe apuntar a esta IP para que el webhook funcione correctamente."
+echo "⚠️ Recuerda abrir los puertos 5000 (webhook), 6000 (bot WhatsApp) y 80 (si usas para web)."
+echo "Configura los tokens en config.py y config_whatsapp.py antes de iniciar los bots."
