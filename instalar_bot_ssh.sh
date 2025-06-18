@@ -1,7 +1,10 @@
 #!/bin/bash
 
-BOT_TOKEN="TU_TELEGRAM_BOT_TOKEN"
-MP_TOKEN="TU_MERCADO_PAGO_TOKEN"
+echo "🔐 Ingresá el token de tu bot de Telegram:"
+read -p "👉 TELEGRAM_BOT_TOKEN: " BOT_TOKEN
+
+echo "💳 Ingresá tu Access Token de Mercado Pago:"
+read -p "👉 MERCADO_PAGO_ACCESS_TOKEN: " MP_TOKEN
 
 echo "📦 Actualizando sistema..."
 sudo apt update && sudo apt upgrade -y
@@ -167,5 +170,5 @@ echo ""
 echo "👉 Para iniciar el webhook:"
 echo "   python3 webhook.py"
 echo ""
-echo "⚠️ Recuerda exponer el puerto 5000 usando ngrok u otro túnel:"
+echo "⚠️ Recordá exponer el puerto 5000 usando ngrok u otro túnel:"
 echo "   ./ngrok http 5000"
