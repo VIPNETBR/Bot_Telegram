@@ -2,47 +2,64 @@
 
 set -e
 
-# Pedir datos al usuario
-read -p "🔑 Ingresa el TOKEN del BOT Telegram: " BOT_TOKEN
-read -p "🔑 Ingresa el ACCESS TOKEN de MercadoPago: " MP_TOKEN
-read -p "🌐 Ingresa tu dominio tipo A (o IP vinculada): " DOMINIO
+echo "==== Instalador Bot Telegram SSH + Mercado Pago ===="
 
+read -p "Ingresa tu TELEGRAM BOT TOKEN: " BOT_TOKEN
+read -p "Ingresa tu MERCADO PAGO ACCESS TOKEN: " MP_TOKEN
+read -p "Ingresa el dominio (registro tipo A vinculado al IP): " DOMINIO
+
+echo "Configura los planes (deja vacío para valores por defecto)"
+
+read -p "Plan 1 - Duración días [default 31]: " PLAN1_DIAS
+PLAN1_DIAS=${PLAN1_DIAS:-31}
+read -p "Plan 1 - Precio (ej: 20): " PLAN1_PRECIO
+PLAN1_PRECIO=${PLAN1_PRECIO:-20}
+
+read -p "Plan 2 - Duración días [default 16]: " PLAN2_DIAS
+PLAN2_DIAS=${PLAN2_DIAS:-16}
+read -p "Plan 2 - Precio (ej: 15): " PLAN2_PRECIO
+PLAN2_PRECIO=${PLAN2_PRECIO:-15}
+
+read -p "Plan 3 - Duración días [default 8]: " PLAN3_DIAS
+PLAN3_DIAS=${PLAN3_DIAS:-8}
+read -p "Plan 3 - Precio (ej: 10): " PLAN3_PRECIO
+PLAN3_PRECIO=${PLAN3_PRECIO:-10}
+
+echo ""
 echo "📦 Actualizando sistema..."
 sudo apt update && sudo apt upgrade -y
 
 echo "🐍 Instalando Python y dependencias..."
-sudo apt install -y python3 python3-pip python3-venv git curl unzip
+sudo apt install -y python3 python3-pip python3-venv git curl nano
 
-echo "📁 Preparando entorno bot_ssh..."
+echo "📁 Creando entorno y directorios..."
 mkdir -p ~/bot_ssh && cd ~/bot_ssh
 python3 -m venv venv
 source venv/bin/activate
 
-echo "⬇️ Instalando librerías Python necesarias..."
 pip install --upgrade pip
 pip install aiogram mercadopago qrcode[pil] flask requests
 
-# Crear config.py
+echo "⚙️ Guardando configuración..."
+
 cat > config.py <<EOF
-TELEGRAM_BOT_TOKEN = "${BOT_TOKEN}"
-MERCADO_PAGO_ACCESS_TOKEN = "${MP_TOKEN}"
-DOMINIO = "${DOMINIO}"
+TELEGRAM_BOT_TOKEN="${BOT_TOKEN}"
+MERCADO_PAGO_ACCESS_TOKEN="${MP_TOKEN}"
+DOMINIO="${DOMINIO}"
 EOF
 
-# Crear plans.json con los 3 planes fijos
 cat > plans.json <<EOF
 [
-  {"dias": 31, "precio": 20},
-  {"dias": 16, "precio": 15},
-  {"dias": 8, "precio": 10}
+  {"dias": ${PLAN1_DIAS}, "precio": ${PLAN1_PRECIO}},
+  {"dias": ${PLAN2_DIAS}, "precio": ${PLAN2_PRECIO}},
+  {"dias": ${PLAN3_DIAS}, "precio": ${PLAN3_PRECIO}}
 ]
 EOF
 
-# Archivo entrega.py con accesos SSH (ejemplo, editar después)
-cat > entrega.py <<EOF
+cat > entrega.py <<'EOF'
 accesos_ssh = [
-    {"host": "ssh1.tuservidor.com", "user": "Gabriel", "pass": "6197", "limit": 1},
-    {"host": "ssh2.tuservidor.com", "user": "Lucas", "pass": "8754", "limit": 1}
+    {"user": "Gabriel", "pass": "6197", "limit": 1},
+    {"user": "user2", "pass": "clave2", "limit": 1}
 ]
 
 def entregar_acceso():
@@ -51,52 +68,35 @@ def entregar_acceso():
     return None
 EOF
 
-# Bot Telegram
 cat > bot.py <<'EOF'
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
-import qrcode
-from io import BytesIO
-import mercadopago
 import json
-import threading
+import qrcode
+import io
+import mercadopago
 from config import TELEGRAM_BOT_TOKEN, MERCADO_PAGO_ACCESS_TOKEN
 
 logging.basicConfig(level=logging.INFO)
-
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher(bot)
-
 sdk = mercadopago.SDK(MERCADO_PAGO_ACCESS_TOKEN)
 
-with open("plans.json", "r") as f:
+with open('plans.json', 'r') as f:
     PLANS = json.load(f)
 
-def generar_qr(data: str) -> BytesIO:
-    import qrcode
-    from io import BytesIO
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    bio = BytesIO()
-    bio.name = "pix.png"
-    img.save(bio, "PNG")
-    bio.seek(0)
-    return bio
-
-@dp.message_handler(commands=["start"])
-async def start_handler(message: types.Message):
+@dp.message_handler(commands=['start'])
+async def start(msg: types.Message):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     for i, plan in enumerate(PLANS):
         keyboard.add(types.InlineKeyboardButton(
             text=f"{plan['dias']} días - ${plan['precio']}",
             callback_data=f"comprar_{i}"
         ))
-    await message.answer("🔥 *Planes SSH Disponibles:*\n\nElige uno para generar el pago:", parse_mode="Markdown", reply_markup=keyboard)
+    await msg.answer("🔥 *Planes SSH Disponibles:*\n\nElige uno de los siguientes planes:",
+                     parse_mode="Markdown", reply_markup=keyboard)
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("comprar_"))
+@dp.callback_query_handler(lambda call: call.data.startswith("comprar_"))
 async def comprar_callback(call: types.CallbackQuery):
     idx = int(call.data.split("_")[1])
     plan = PLANS[idx]
@@ -110,31 +110,39 @@ async def comprar_callback(call: types.CallbackQuery):
 
     result = sdk.payment().create(payment_data)
     payment = result["response"]
+    link = payment["point_of_interaction"]["transaction_data"]["ticket_url"]
+    copia_cola = payment["point_of_interaction"]["transaction_data"]["qr_code"]
 
-    pix_code = payment.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code")
-    ticket_url = payment.get("point_of_interaction", {}).get("transaction_data", {}).get("ticket_url")
+    qr = qrcode.make(link)
+    bio = io.BytesIO()
+    qr.save(bio, format='PNG')
+    bio.seek(0)
 
-    if not pix_code or not ticket_url:
-        await call.message.answer("❌ Error generando el pago, por favor intenta más tarde.")
-        return
-
-    qr_img = generar_qr(pix_code)
+    await call.message.answer_photo(photo=bio, caption="📸 Escanea para pagar via QR PIX (Mercado Pago)")
 
     texto_pago = (
-        "✅ PAGAMENTO GERADO COM SUCESSO\n\n"
-        "PIX COPIA E COLA:\n"
-        f"{pix_code}\n\n"
-        f"URL DO TICKET:\n{ticket_url}"
+        f"✅ PAGAMENTO GERADO COM SUCESSO\n\n"
+        f"PIX COPIA E COLA:\n{copia_cola}\n\n"
+        f"URL DO TICKET:\n{link}"
     )
+    await call.message.answer(texto_pago)
 
-    await call.message.answer_photo(photo=qr_img, caption=texto_pago)
-    await call.answer()
+@dp.message_handler(commands=['ventas'])
+async def ventas(msg: types.Message):
+    try:
+        with open("webhook.log", "r") as f:
+            lines = f.readlines()
+        ultimas_ventas = "".join(lines[-50:])
+        await msg.answer(f"🧾 Últimas 50 ventas:\n\n{ultimas_ventas}")
+    except Exception as e:
+        await msg.answer(f"Error leyendo ventas: {e}")
 
+from aiogram import executor
 if __name__ == "__main__":
-    executor.start_polling(dp)
+    print("INFO: Bot iniciado")
+    executor.start_polling(dp, skip_updates=True)
 EOF
 
-# webhook.py para confirmar pagos y entregar accesos
 cat > webhook.py <<'EOF'
 from flask import Flask, request
 import mercadopago
@@ -159,11 +167,7 @@ def webhook():
 
         if payment["status"] == "approved":
             email = payment["payer"]["email"]
-            user_id_str = email.split("@")[0].replace("user", "")
-            try:
-                user_id = int(user_id_str)
-            except:
-                return "User ID invalido", 400
+            user_id = email.split("@")[0].replace("user", "")
 
             descripcion = payment["description"]
             dias = next((p["dias"] for p in PLANS if str(p["dias"]) in descripcion), 7)
@@ -182,15 +186,19 @@ def webhook():
                     "📥 APLICACION: https://play.google.com/store/apps/details?id=app.conecta.pro"
                 )
             else:
-                msg = "⚠️ *Pago aprobado, pero no hay accesos SSH disponibles.*"
+                msg = "⚠️ Pago confirmado pero no hay accesos SSH disponibles."
 
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             payload = {
-                "chat_id": user_id,
+                "chat_id": int(user_id),
                 "text": msg,
                 "parse_mode": "Markdown"
             }
             requests.post(url, json=payload)
+
+            # Guardar log
+            with open("webhook.log", "a") as f:
+                f.write(f"{datetime.datetime.now()} - Pago aprobado: Usuario {acceso['user'] if acceso else 'No disponible'}, Dias {dias}\n")
 
     return "OK", 200
 
@@ -198,11 +206,15 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 EOF
 
-# Menú sencillo para administrar el bot
 cat > menu.sh <<'EOF'
 #!/bin/bash
 source ~/bot_ssh/venv/bin/activate
 cd ~/bot_ssh
+
+clear
+echo "===== Logs de ventas recientes ====="
+tail -n 50 webhook.log
+read -p "Presiona Enter para continuar al menú..."
 
 while true; do
     clear
@@ -274,17 +286,17 @@ while true; do
     esac
 done
 EOF
+
 chmod +x menu.sh
 
 echo ""
-echo "✅ Instalación completa!"
-echo "👉 Usa el script 'menu.sh' para administrar el bot y webhook"
-echo "👉 Recuerda abrir los puertos 80 y 5000 en tu VPS (5000 para webhook)"
-echo "   Si el puerto 80 está ocupado, el webhook usa el 5000."
+echo "✅ Instalación completada."
+echo "👉 Para iniciar el menú de administración:"
+echo "   cd ~/bot_ssh"
+echo "   source venv/bin/activate"
+echo "   ./menu.sh"
 echo ""
-echo "Para comenzar:"
-echo "  cd ~/bot_ssh && source venv/bin/activate && python3 bot.py"
-echo "En otro terminal o con screen/tmux:"
-echo "  cd ~/bot_ssh && source venv/bin/activate && python3 webhook.py"
+echo "⚠️ Recuerda abrir el puerto 5000 para el webhook y puerto 80 si planeas usarlo."
+echo "Si el puerto 80 está ocupado, usa el 5000."
 echo ""
-echo "O simplemente ejecuta ./menu.sh para controlarlo todo."
+echo "Nota: El dominio que ingresaste debe apuntar a esta IP para que el webhook funcione correctamente."
