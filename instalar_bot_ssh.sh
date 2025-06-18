@@ -1,57 +1,64 @@
 #!/bin/bash
 
 clear
-echo "🔧 Instalador automático del Bot Telegram SSH + Mercado Pago"
-echo "--------------------------------------------------------------"
+echo "📲 Iniciando instalación del bot SSH para Telegram..."
+read -p "🔑 Ingresa el TOKEN del bot de Telegram: " BOT_TOKEN
+read -p "💳 Ingresa el ACCESS TOKEN de Mercado Pago: " MP_TOKEN
+read -p "🌐 Ingresa el dominio (debe apuntar al servidor): " DOMINIO
 
-# Solicita credenciales
-read -p "🔑 Ingresa el TOKEN de tu Bot Telegram: " BOT_TOKEN
-read -p "💰 Ingresa tu ACCESS TOKEN de Mercado Pago: " MP_TOKEN
-read -p "🌐 Ingresa tu dominio (apuntando tipo A a esta VPS): " DOMINIO
+# Planes personalizados
+echo "📋 Define los planes:"
+read -p "Duración (días) del Plan 1: " P1_DIAS
+read -p "Precio del Plan 1: " P1_PRECIO
+read -p "Duración (días) del Plan 2: " P2_DIAS
+read -p "Precio del Plan 2: " P2_PRECIO
+read -p "Duración (días) del Plan 3: " P3_DIAS
+read -p "Precio del Plan 3: " P3_PRECIO
 
-echo "📦 Ahora configuraremos los planes de SSH:"
-read -p "⏱️ Duración Plan 1 (ej: 31): " P1_D
-read -p "💵 Precio Plan 1 (ej: 20): " P1_P
-read -p "⏱️ Duración Plan 2 (ej: 16): " P2_D
-read -p "💵 Precio Plan 2 (ej: 15): " P2_P
-read -p "⏱️ Duración Plan 3 (ej: 8): " P3_D
-read -p "💵 Precio Plan 3 (ej: 10): " P3_P
+# Verificar puertos
+echo "🔍 Verificando puertos..."
+PORTS=(80 5000)
+for PORT in "${PORTS[@]}"; do
+  if lsof -i :$PORT &> /dev/null; then
+    echo "⚠️ El puerto $PORT ya está en uso. Asegúrate de liberarlo si es necesario."
+  else
+    echo "✅ Puerto $PORT libre."
+  fi
+done
 
-echo ""
-echo "📡 Verificando puertos..."
-sudo lsof -i :80 &> /dev/null && echo "⚠️ El puerto 80 ya está en uso." || echo "✅ Puerto 80 libre"
-sudo lsof -i :5000 &> /dev/null && echo "⚠️ El puerto 5000 ya está en uso." || echo "✅ Puerto 5000 libre"
+echo "📦 Actualizando sistema..."
+sudo apt update && sudo apt upgrade -y
 
-# Actualiza sistema e instala dependencias
-echo "📦 Instalando dependencias..."
-sudo apt update && sudo apt install -y python3 python3-pip python3-venv nginx unzip git curl
+echo "🐍 Instalando dependencias..."
+sudo apt install -y python3 python3-pip python3-venv git unzip curl
 
-# Directorio del bot
+echo "📁 Preparando entorno del bot..."
 mkdir -p ~/bot_ssh && cd ~/bot_ssh
 python3 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
-pip install aiogram==2.25.2 flask mercadopago qrcode[pil] requests
 
-# Archivos de configuración
+pip install --upgrade pip
+pip install aiogram==2.25.2 mercadopago qrcode[pil] flask requests
+
 cat > config.py <<EOF
 TELEGRAM_BOT_TOKEN="${BOT_TOKEN}"
 MERCADO_PAGO_ACCESS_TOKEN="${MP_TOKEN}"
-WEBHOOK_URL="https://${DOMINIO}/webhook"
+DOMINIO="${DOMINIO}"
 EOF
 
 cat > plans.json <<EOF
 [
-  {"dias": ${P1_D}, "precio": ${P1_P}},
-  {"dias": ${P2_D}, "precio": ${P2_P}},
-  {"dias": ${P3_D}, "precio": ${P3_P}}
+  {"dias": $P1_DIAS, "precio": $P1_PRECIO},
+  {"dias": $P2_DIAS, "precio": $P2_PRECIO},
+  {"dias": $P3_DIAS, "precio": $P3_PRECIO}
 ]
 EOF
 
 cat > entrega.py <<EOF
 accesos_ssh = [
-  {"host": "ssh1.tuservidor.com", "user": "user1", "pass": "123456", "limit": 1},
-  {"host": "ssh2.tuservidor.com", "user": "user2", "pass": "abcdef", "limit": 1}
+    {"user": "Gabriel", "pass": "6197", "limit": 1},
+    {"user": "Juan", "pass": "2345", "limit": 1},
+    {"user": "Maria", "pass": "8821", "limit": 1}
 ]
 
 def entregar_acceso():
@@ -62,7 +69,7 @@ EOF
 
 cat > bot.py <<'EOF'
 import logging
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Bot, Dispatcher, executor, types
 import json
 import qrcode
 import io
@@ -141,32 +148,29 @@ def webhook():
         if payment["status"] == "approved":
             email = payment["payer"]["email"]
             user_id = email.split("@")[0].replace("user", "")
-
             descripcion = payment["description"]
             dias = next((p["dias"] for p in PLANS if str(p["dias"]) in descripcion), 7)
             hoy = datetime.datetime.now()
-            vencimiento = (hoy + datetime.timedelta(days=dias)).strftime("%d/%m/%Y")
+            vencimiento = (hoy + datetime.timedelta(days=dias)).strftime("%d-%m-%Y")
 
             acceso = entregar_acceso()
             if acceso:
                 msg = (
-                    f"✅ *Pago confirmado*\n\n"
-                    f"🧩 *Acceso Creado:*\n"
-                    f"👤Usuario: `{acceso['user']}`\n"
-                    f"🔐Clave: `{acceso['pass']}`\n"
-                    f"📲Límite: {acceso.get('limit', 1)}\n"
-                    f"🗓️Vencimiento: {vencimiento}\n\n"
-                    f"📥 Descarga nuestra app desde la PlayStore:\n"
-                    f"[Conecta HTTP](https://play.google.com/store/apps/details?id=app.conecta.pro)"
+                    "✅ PAGO CONFIRMADO !\n\n"
+                    "🧩ACCESO CREADO CON EXITO ✅\n\n"
+                    f"👤USUARIO: {acceso['user']}\n"
+                    f"🔐CONTRASEÑA: {acceso['pass']}\n"
+                    f"📲LIMITE: {acceso['limit']}\n"
+                    f"🗓️VENCIMIENTO: {vencimiento}\n\n"
+                    "📥 APLICACION: https://play.google.com/store/apps/details?id=app.conecta.pro"
                 )
             else:
-                msg = "⚠️ *Pago confirmado pero no hay accesos SSH disponibles.*"
+                msg = "⚠️ PAGO CONFIRMADO pero no hay accesos disponibles."
 
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             payload = {
                 "chat_id": int(user_id),
-                "text": msg,
-                "parse_mode": "Markdown"
+                "text": msg
             }
             requests.post(url, json=payload)
     return "OK", 200
@@ -175,32 +179,13 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 EOF
 
-# Configurar nginx para redirigir /webhook al puerto 5000
-echo "🛠️ Configurando Nginx..."
-cat > /etc/nginx/sites-available/sshbot <<EOF
-server {
-    listen 80;
-    server_name ${DOMINIO};
-
-    location /webhook {
-        proxy_pass http://127.0.0.1:5000/webhook;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-    }
-}
-EOF
-
-ln -s /etc/nginx/sites-available/sshbot /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-# Establecer webhook
-echo "🌐 Estableciendo Webhook..."
-curl -s -X POST https://api.telegram.org/bot${BOT_TOKEN}/setWebhook -d url=https://${DOMINIO}/webhook
-
 echo ""
-echo "✅ Instalación completa. Usa estos comandos para iniciar:"
-echo "cd ~/bot_ssh && source venv/bin/activate"
-echo "python3 bot.py   # Para iniciar el bot"
-echo "python3 webhook.py  # (solo si no usás Nginx)"
+echo "✅ Instalación completada."
 echo ""
-echo "🌐 Webhook activado en: https://${DOMINIO}/webhook"
+echo "👉 Inicia el bot con:"
+echo "   cd ~/bot_ssh && source venv/bin/activate && python3 bot.py"
+echo ""
+echo "👉 Inicia el webhook con:"
+echo "   python3 webhook.py"
+echo ""
+echo "⚠️ Asegúrate de que los puertos 80 y 5000 estén abiertos en tu VPS"
