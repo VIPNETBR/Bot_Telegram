@@ -6,6 +6,19 @@ read -p "👉 TELEGRAM_BOT_TOKEN: " BOT_TOKEN
 echo "💳 Ingresá tu Access Token de Mercado Pago:"
 read -p "👉 MERCADO_PAGO_ACCESS_TOKEN: " MP_TOKEN
 
+echo "🌐 Ingresá tu dominio (tipo A) para el webhook (ej: ssh.midominio.com):"
+read -p "👉 DOMINIO_WEBHOOK: " WEBHOOK_DOMAIN
+
+echo "📡 Ingresá la IP pública de este servidor (para configurar el DNS):"
+read -p "👉 IP_PUBLICA: " IP_PUBLICA
+
+echo ""
+echo "🛑 IMPORTANTE:"
+echo "➡️ Apuntá el dominio ${WEBHOOK_DOMAIN} a la IP ${IP_PUBLICA} usando un registro A en tu proveedor de dominio."
+echo "➡️ Luego en Mercado Pago, configurá el webhook como:"
+echo "   https://${WEBHOOK_DOMAIN}/webhook"
+echo ""
+
 echo "📦 Actualizando sistema..."
 sudo apt update && sudo apt upgrade -y
 
@@ -23,6 +36,7 @@ pip install aiogram mercadopago qrcode[pil] flask requests
 cat > config.py <<EOF
 TELEGRAM_BOT_TOKEN="${BOT_TOKEN}"
 MERCADO_PAGO_ACCESS_TOKEN="${MP_TOKEN}"
+WEBHOOK_DOMAIN="${WEBHOOK_DOMAIN}"
 EOF
 
 cat > plans.json <<EOF
@@ -170,5 +184,7 @@ echo ""
 echo "👉 Para iniciar el webhook:"
 echo "   python3 webhook.py"
 echo ""
-echo "⚠️ Recordá exponer el puerto 5000 usando ngrok u otro túnel:"
-echo "   ./ngrok http 5000"
+echo "📡 Webhook para Mercado Pago:"
+echo "   https://${WEBHOOK_DOMAIN}/webhook"
+echo ""
+echo "⚠️ Asegurate de que tu dominio apunte a la IP ${IP_PUBLICA}"
