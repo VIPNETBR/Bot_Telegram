@@ -1,0 +1,5 @@
+aiogram
+mercadopago
+qrcode[pil]
+flask
+requests
